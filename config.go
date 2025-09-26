@@ -1,6 +1,6 @@
-package traefikdisolver
+package traefikwarp
 
-import "github.com/l4rm4nd/traefikdisolver/providers"
+import "github.com/l4rm4nd/traefik-warp/providers"
 
 // Config the plugin configuration.
 type Config struct {

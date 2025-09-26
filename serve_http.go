@@ -1,4 +1,4 @@
-package traefikdisolver
+package traefikwarp
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/l4rm4nd/traefikdisolver/providers"
-	"github.com/l4rm4nd/traefikdisolver/providers/cloudflare"
-	"github.com/l4rm4nd/traefikdisolver/providers/cloudfront"
+	"github.com/l4rm4nd/traefik-warp/providers"
+	"github.com/l4rm4nd/traefik-warp/providers/cloudflare"
+	"github.com/l4rm4nd/traefik-warp/providers/cloudfront"
 )
 
 // cleanInboundForwardingHeaders removes spoofable forwarding headers.

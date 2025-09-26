@@ -1,10 +1,10 @@
-package traefikdisolver
+package traefikwarp
 
 import (
 	"net"
 	"net/http"
 
-	"github.com/l4rm4nd/traefikdisolver/providers"
+	"github.com/l4rm4nd/traefik-warp/providers"
 )
 
 // Disolver is a plugin that overwrites the true IP.

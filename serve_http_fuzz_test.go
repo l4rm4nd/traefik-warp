@@ -1,4 +1,4 @@
-package traefikdisolver
+package traefikwarp
 
 import "testing"
 

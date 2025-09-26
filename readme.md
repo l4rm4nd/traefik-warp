@@ -23,7 +23,7 @@ Supported configurations per body
 experimental:
   plugins:
     traefikdisolver:
-      modulename: github.com/kyaxcorp/traefikdisolver
+      modulename: github.com/l4rm4nd/traefik-warp
       version: v1.0.9
 ```
 
@@ -34,17 +34,17 @@ http:
   middlewares:
     traefikdisolver-auto:
       plugin:
-        traefikdisolver:
+        traefikwarp:
           provider: auto
 
     traefikdisolver-cloudfront:
       plugin:
-        traefikdisolver:
+        traefikwarp:
           provider: cloudfront
 
     traefikdisolver-cloudflare:
       plugin:
-        traefikdisolver:
+        traefikwarp:
           provider: cloudflare
 
   routers:

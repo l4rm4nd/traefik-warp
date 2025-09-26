@@ -1,4 +1,4 @@
-package traefikdisolver
+package traefikwarp
 
 const (
 	xRealIP       = "X-Real-Ip"

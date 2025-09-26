@@ -1,4 +1,4 @@
-package traefikdisolver
+package traefikwarp
 
 import (
 	"net"
@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/l4rm4nd/traefikdisolver/providers"
+	"github.com/l4rm4nd/traefik-warp/providers"
 )
 
 type captureNext struct{}
