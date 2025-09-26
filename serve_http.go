@@ -1,3 +1,4 @@
+// serve_http.go
 package traefikwarp
 
 import (
@@ -80,32 +81,7 @@ func extractClientIP(raw string) string {
 	return ""
 }
 
-// inferMatchedProvider returns which provider bucket contains ipStr (string form).
-// In Auto mode we want to bind header selection to the provider that actually matched.
-func (r *Disolver) inferMatchedProvider(ipStr string) providers.Provider {
-	// Normalize possible "ip:port" or "[v6]:port" strings
-	if host, _, err := net.SplitHostPort(ipStr); err == nil && host != "" {
-		ipStr = host
-	} else {
-		// Strip surrounding brackets if present (e.g., "[2001:db8::1]")
-		ipStr = strings.TrimPrefix(ipStr, "[")
-		ipStr = strings.TrimSuffix(ipStr, "]")
-	}
-
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return providers.Unknown
-	}
-	for prov, nets := range r.TrustIP {
-		for _, n := range nets {
-			if n.Contains(ip) {
-				return prov
-			}
-		}
-	}
-	return providers.Unknown
-}
-
+// ipInProvider checks if ipStr is contained in a provider bucket.
 func (r *Disolver) ipInProvider(prov providers.Provider, ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
@@ -138,15 +114,31 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Always clear spoofable headers first.
 	cleanInboundForwardingHeaders(req.Header)
 
+	// Figure out which provider the *socket IP* matches, if any.
+	socketIP := parseSocketIP(req.RemoteAddr)
+	matched := providers.Unknown
+	if r.ipInProvider(providers.Cloudflare, socketIP) {
+		matched = providers.Cloudflare
+	} else if r.ipInProvider(providers.Cloudfront, socketIP) {
+		matched = providers.Cloudfront
+	}
+
 	if trustResult.trusted {
+		// Provider-agnostic trust markers
+		req.Header.Set(xWarpTrusted, "yes")
+		switch matched {
+		case providers.Cloudflare:
+			req.Header.Set(xWarpProvider, "cloudflare")
+		case providers.Cloudfront:
+			req.Header.Set(xWarpProvider, "cloudfront")
+		default:
+			req.Header.Set(xWarpProvider, "unknown")
+		}
+
 		// Provider-specific handling
 		switch r.provider {
 		case providers.Cloudflare, providers.Auto:
-			// Only consider CF-Visitor if the matched provider is Cloudflare (Auto) or provider is explicitly Cloudflare.
-			matched := r.provider
-			if r.provider == providers.Auto {
-				matched = r.inferMatchedProvider(trustResult.directIP)
-			}
+			// Only consider CF-Visitor if the socket edge matched Cloudflare.
 			if matched == providers.Cloudflare {
 				if v := req.Header.Get(cloudflare.CfVisitor); v != "" {
 					var cfv CFVisitorHeader
@@ -159,7 +151,6 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 					// Drop raw CF-Visitor header to avoid leaking upstream.
 					req.Header.Del(cloudflare.CfVisitor)
 				}
-				req.Header.Set(cloudflare.XCfTrusted, "yes")
 			}
 		case providers.Cloudfront:
 			// No special headers beyond client IP extraction.
@@ -169,16 +160,14 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		var clientIPHeaderName string
 		switch r.provider {
 		case providers.Auto:
-		    // Use the socket IP (trustResult.directIP) to decide which header to trust
-		    socketIP := parseSocketIP(req.RemoteAddr)
-		    if r.ipInProvider(providers.Cloudflare, socketIP) && req.Header.Get(cloudflare.ClientIPHeaderName) != "" {
-		        clientIPHeaderName = cloudflare.ClientIPHeaderName
-		    } else if r.ipInProvider(providers.Cloudfront, socketIP) && req.Header.Get(cloudfront.ClientIPHeaderName) != "" {
-		        clientIPHeaderName = cloudfront.ClientIPHeaderName
-		    } else {
-		        // no matching provider/header combo → will fall back to socket IP
-		    }
-
+			// Use the socket IP match to decide which header to trust
+			if matched == providers.Cloudflare && req.Header.Get(cloudflare.ClientIPHeaderName) != "" {
+				clientIPHeaderName = cloudflare.ClientIPHeaderName
+			} else if matched == providers.Cloudfront && req.Header.Get(cloudfront.ClientIPHeaderName) != "" {
+				clientIPHeaderName = cloudfront.ClientIPHeaderName
+			} else {
+				// no matching provider/header combo → will fall back to socket IP
+			}
 		default:
 			clientIPHeaderName = r.clientIPHeaderName
 		}
@@ -210,10 +199,13 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		req.Header.Set(xRealIP, clientIP)
 
 	} else {
+		// Provider-agnostic trust markers (untrusted)
+		req.Header.Set(xWarpTrusted, "no")
+		req.Header.Set(xWarpProvider, "unknown")
+
 		// Untrusted: strip provider-specific headers and mark untrusted where applicable.
 		switch r.provider {
 		case providers.Cloudflare, providers.Auto:
-			req.Header.Set(cloudflare.XCfTrusted, "no")
 			req.Header.Del(cloudflare.CfVisitor)
 			req.Header.Del(cloudflare.ClientIPHeaderName)
 		case providers.Cloudfront:
@@ -221,12 +213,12 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 
 		// Use the direct socket IP.
-		socketIP := trustResult.directIP
-		if socketIP == "" {
-			socketIP = parseSocketIP(req.RemoteAddr)
+		useIP := trustResult.directIP
+		if useIP == "" {
+			useIP = socketIP
 		}
-		appendXFF(req.Header, socketIP)
-		req.Header.Set(xRealIP, socketIP)
+		appendXFF(req.Header, useIP)
+		req.Header.Set(xRealIP, useIP)
 
 		// Proto fallback
 		if req.Header.Get(xForwardProto) == "" {

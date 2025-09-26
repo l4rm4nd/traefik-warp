@@ -1,4 +1,4 @@
-// serve_http_table_test.go (replace your current table test)
+// serve_http_table_test.go
 package traefikwarp
 
 import (
@@ -13,12 +13,15 @@ import (
 type verboseNext struct{}
 
 func (verboseNext) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Echo headers
+	// Echo selected headers so tests can assert easily
 	xrip := r.Header.Get("X-Real-IP")
 	w.Header().Set("Got-XRIP", xrip)
 	w.Header().Set("Got-XFF", r.Header.Get("X-Forwarded-For"))
 	w.Header().Set("Got-XFP", r.Header.Get("X-Forwarded-Proto"))
-	w.Header().Set("Got-CFTrusted", r.Header.Get("X-Is-Trusted"))
+
+	// Neutral markers
+	w.Header().Set("Got-Warp-Trusted", r.Header.Get("X-Warp-Trusted"))
+	w.Header().Set("Got-Warp-Provider", r.Header.Get("X-Warp-Provider"))
 
 	// Infer where XRIP came from: cf header, cloudfront header, or socket
 	src := "socket"
@@ -43,21 +46,22 @@ func (verboseNext) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func Test_Scenarios_RealIPExtraction(t *testing.T) {
 	tests := []struct {
-		name       string
-		provider   providers.Provider
-		trustCIDRs map[providers.Provider][]string
-		remoteAddr string
-		headers    map[string]string
-		wantIP     string
-		wantXIs    string // "" → don’t check
+		name            string
+		provider        providers.Provider
+		trustCIDRs      map[providers.Provider][]string
+		remoteAddr      string
+		headers         map[string]string
+		wantIP          string
+		wantWarpTrusted string // "yes" | "no"
+		wantWarpProv    string // "cloudflare" | "cloudfront" | "unknown"
 	}{
-		// … keep your cases exactly as before …
 		{
-			name:       "untrusted socket only",
-			provider:   providers.Cloudflare,
-			remoteAddr: "203.0.113.7:54321",
-			wantIP:     "203.0.113.7",
-			wantXIs:    "no",
+			name:            "untrusted socket only",
+			provider:        providers.Cloudflare,
+			remoteAddr:      "203.0.113.7:54321",
+			wantIP:          "203.0.113.7",
+			wantWarpTrusted: "no",
+			wantWarpProv:    "unknown",
 		},
 		{
 			name:     "trusted cloudflare header and CF-Visitor",
@@ -70,8 +74,9 @@ func Test_Scenarios_RealIPExtraction(t *testing.T) {
 				"CF-Connecting-IP": "1.2.3.4",
 				"CF-Visitor":       `{"scheme":"https"}`,
 			},
-			wantIP:  "1.2.3.4",
-			wantXIs: "yes",
+			wantIP:          "1.2.3.4",
+			wantWarpTrusted: "yes",
+			wantWarpProv:    "cloudflare",
 		},
 		{
 			name:     "trusted cloudfront viewer address",
@@ -83,9 +88,55 @@ func Test_Scenarios_RealIPExtraction(t *testing.T) {
 			headers: map[string]string{
 				"Cloudfront-Viewer-Address": "5.6.7.8:5555",
 			},
-			wantIP: "5.6.7.8",
+			wantIP:          "5.6.7.8",
+			wantWarpTrusted: "yes",
+			wantWarpProv:    "cloudfront",
 		},
-		// … include your other cases …
+		{
+			name:     "auto picks cloudfront when socket in cloudfront and both headers present",
+			provider: providers.Auto,
+			trustCIDRs: map[providers.Provider][]string{
+				providers.Cloudfront: {"203.0.113.0/24"},
+				providers.Cloudflare: {"198.51.100.0/24"},
+			},
+			remoteAddr: "203.0.113.10:443",
+			headers: map[string]string{
+				"CF-Connecting-IP":          "9.9.9.9",        // should be ignored
+				"Cloudfront-Viewer-Address": "5.6.7.8:1234",  // should win
+			},
+			wantIP:          "5.6.7.8",
+			wantWarpTrusted: "yes",
+			wantWarpProv:    "cloudfront",
+		},
+		{
+			name:     "auto picks cloudflare when socket in cloudflare and CF header present",
+			provider: providers.Auto,
+			trustCIDRs: map[providers.Provider][]string{
+				providers.Cloudfront: {"203.0.113.0/24"},
+				providers.Cloudflare: {"198.51.100.0/24"},
+			},
+			remoteAddr: "198.51.100.23:443",
+			headers: map[string]string{
+				"CF-Connecting-IP": "7.7.7.7",
+			},
+			wantIP:          "7.7.7.7",
+			wantWarpTrusted: "yes",
+			wantWarpProv:    "cloudflare",
+		},
+		{
+			name:     "malformed cloudfront header falls back to socket ip (still trusted)",
+			provider: providers.Cloudfront,
+			trustCIDRs: map[providers.Provider][]string{
+				providers.Cloudfront: {"203.0.113.0/24"},
+			},
+			remoteAddr: "203.0.113.10:443",
+			headers: map[string]string{
+				"Cloudfront-Viewer-Address": "not-an-ip:abc",
+			},
+			wantIP:          "203.0.113.10",
+			wantWarpTrusted: "yes",
+			wantWarpProv:    "cloudfront",
+		},
 	}
 
 	for _, tc := range tests {
@@ -132,22 +183,27 @@ func Test_Scenarios_RealIPExtraction(t *testing.T) {
 			}
 			gotIP := rr.Header().Get("Got-XRIP")
 			gotSrc := rr.Header().Get("Got-Source")
-			gotXIs := rr.Header().Get("Got-CFTrusted")
+			gotWarpTrusted := rr.Header().Get("Got-Warp-Trusted")
+			gotWarpProv := rr.Header().Get("Got-Warp-Provider")
 
 			// pretty one-liner trace per case (visible with -v)
-			t.Logf("provider=%-10s remote=%-22s src=%-10s -> X-Real-IP=%-15s X-Is-Trusted=%q",
+			t.Logf("provider=%-10s remote=%-22s src=%-10s -> X-Real-IP=%-15s WarpTrusted=%q WarpProvider=%q",
 				tc.provider.String(),
 				tc.remoteAddr,
 				gotSrc,
 				gotIP,
-				gotXIs,
+				gotWarpTrusted,
+				gotWarpProv,
 			)
 
 			if gotIP != tc.wantIP {
 				t.Fatalf("want X-Real-IP=%q got=%q", tc.wantIP, gotIP)
 			}
-			if tc.wantXIs != "" && gotXIs != tc.wantXIs {
-				t.Fatalf("want X-Is-Trusted=%q got=%q", tc.wantXIs, gotXIs)
+			if gotWarpTrusted != tc.wantWarpTrusted {
+				t.Fatalf("want X-Warp-Trusted=%q got=%q", tc.wantWarpTrusted, gotWarpTrusted)
+			}
+			if gotWarpProv != tc.wantWarpProv {
+				t.Fatalf("want X-Warp-Provider=%q got=%q", tc.wantWarpProv, gotWarpProv)
 			}
 		})
 	}

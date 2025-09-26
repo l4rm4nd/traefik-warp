@@ -1,3 +1,4 @@
+// serve_http_test.go
 package traefikwarp
 
 import (
@@ -16,7 +17,9 @@ func (captureNext) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Got-XFF", r.Header.Get("X-Forwarded-For"))
 	w.Header().Set("Got-XRIP", r.Header.Get("X-Real-IP"))
 	w.Header().Set("Got-XFP", r.Header.Get("X-Forwarded-Proto"))
-	w.Header().Set("Got-CFTrusted", r.Header.Get("X-Is-Trusted"))
+	// Neutral trust markers
+	w.Header().Set("Got-Warp-Trusted", r.Header.Get("X-Warp-Trusted"))
+	w.Header().Set("Got-Warp-Provider", r.Header.Get("X-Warp-Provider"))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -66,9 +69,12 @@ func Test_Untrusted_UsesSocketIP_AndSetsHeaders(t *testing.T) {
 	if got := rr.Header().Get("Got-XFP"); got != "http" {
 		t.Fatalf("X-Forwarded-Proto=%q", got)
 	}
-	// Marked untrusted for CF provider
-	if got := rr.Header().Get("Got-CFTrusted"); got != "no" {
-		t.Fatalf("X-Is-Trusted=%q", got)
+	// Neutral trust markers
+	if got := rr.Header().Get("Got-Warp-Trusted"); got != "no" {
+		t.Fatalf("X-Warp-Trusted=%q", got)
+	}
+	if got := rr.Header().Get("Got-Warp-Provider"); got != "unknown" {
+		t.Fatalf("X-Warp-Provider=%q", got)
 	}
 }
 
@@ -96,8 +102,12 @@ func Test_Trusted_Cloudflare_HeaderPreferred(t *testing.T) {
 	if got := rr.Header().Get("Got-XFP"); got != "https" {
 		t.Fatalf("X-Forwarded-Proto=%q", got)
 	}
-	if got := rr.Header().Get("Got-CFTrusted"); got != "yes" {
-		t.Fatalf("X-Is-Trusted=%q", got)
+	// Neutral trust markers
+	if got := rr.Header().Get("Got-Warp-Trusted"); got != "yes" {
+		t.Fatalf("X-Warp-Trusted=%q", got)
+	}
+	if got := rr.Header().Get("Got-Warp-Provider"); got != "cloudflare" {
+		t.Fatalf("X-Warp-Provider=%q", got)
 	}
 }
 
@@ -120,6 +130,13 @@ func Test_Trusted_Cloudfront_HeaderPreferred(t *testing.T) {
 	// No CF-Visitor; proto falls back to http (no TLS in test)
 	if got := rr.Header().Get("Got-XFP"); got != "http" {
 		t.Fatalf("X-Forwarded-Proto=%q", got)
+	}
+	// Neutral trust markers
+	if got := rr.Header().Get("Got-Warp-Trusted"); got != "yes" {
+		t.Fatalf("X-Warp-Trusted=%q", got)
+	}
+	if got := rr.Header().Get("Got-Warp-Provider"); got != "cloudfront" {
+		t.Fatalf("X-Warp-Provider=%q", got)
 	}
 }
 
@@ -144,6 +161,13 @@ func Test_Auto_BindsHeaderToMatchedProvider(t *testing.T) {
 	if got := rr.Header().Get("Got-XRIP"); got != "5.6.7.8" {
 		t.Fatalf("X-Real-IP (expected CloudFront)=%q", got)
 	}
+	// Neutral trust markers
+	if got := rr.Header().Get("Got-Warp-Trusted"); got != "yes" {
+		t.Fatalf("X-Warp-Trusted=%q", got)
+	}
+	if got := rr.Header().Get("Got-Warp-Provider"); got != "cloudfront" {
+		t.Fatalf("X-Warp-Provider=%q", got)
+	}
 }
 
 func Test_CFVisitor_BadJSON_IsIgnored_NotFatal(t *testing.T) {
@@ -167,5 +191,12 @@ func Test_CFVisitor_BadJSON_IsIgnored_NotFatal(t *testing.T) {
 	// Proto fallback (no TLS), since CF-Visitor parsing failed
 	if got := rr.Header().Get("Got-XFP"); got != "http" {
 		t.Fatalf("X-Forwarded-Proto=%q", got)
+	}
+	// Neutral trust markers
+	if got := rr.Header().Get("Got-Warp-Trusted"); got != "yes" {
+		t.Fatalf("X-Warp-Trusted=%q", got)
+	}
+	if got := rr.Header().Get("Got-Warp-Provider"); got != "cloudflare" {
+		t.Fatalf("X-Warp-Provider=%q", got)
 	}
 }
