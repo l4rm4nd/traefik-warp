@@ -7,4 +7,4 @@ import: github.com/l4rm4nd/traefik-warp
 summary: 'Traefik Warp - Get Real Client IP from Cloudflare/AWS Cloudfront Proxy/Tunnel and other data'
 
 testData:
-  provider: cloudfront
+  provider: auto
