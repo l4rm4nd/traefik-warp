@@ -38,7 +38,7 @@ experimental:
   plugins:
     traefikwarp:
       moduleName: github.com/l4rm4nd/traefik-warp
-      version: v1.0.0
+      version: v1.0.1
 ````
 
 ### Use the middleware (Dynamic config)
