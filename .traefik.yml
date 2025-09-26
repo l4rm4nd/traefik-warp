@@ -1,10 +1,15 @@
-displayName: Traefik Warp - Get Client Real IP
+displayName: Traefik Warp – Real Client IP
 type: middleware
-iconPath: .assets/icon.png
-
 import: github.com/l4rm4nd/traefik-warp
+summary: Resolves the real visitor IP behind Cloudflare/CloudFront. In auto mode it binds trusted headers to the socket’s edge IP and sets X-Forwarded-For / X-Real-IP / proto safely.
+iconPath: .assets/icon.png
+# Optional but nice if you have a banner image
+# bannerPath: .assets/banner.png
 
-summary: 'Traefik Warp - Get Real Client IP from Cloudflare/AWS Cloudfront Proxy/Tunnel and other data'
-
+# Minimal config the catalog uses to instantiate your plugin
 testData:
   provider: auto
+  # Optionally show how users can extend trust ranges
+  # trustIp:
+  #   cloudflare: []
+  #   cloudfront: []
