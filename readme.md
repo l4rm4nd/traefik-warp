@@ -1,8 +1,6 @@
 # Traefik Warp – Real Client IP behind Cloudflare / CloudFront
 
-When Traefik runs **behind Cloudflare or AWS CloudFront (proxy/tunnel)**, the socket IP belongs to the edge, not the visitor. **Traefik Warp** securely resolves the **visitor’s real IP** and forwards it to your apps.
-
-## What it does
+When Traefik runs **behind Cloudflare or AWS CloudFront (proxy/tunnel)**, the socket IP belongs to the edge, not the visitor. **Traefik Warp** securely resolves the **visitor’s real IP** and forwards it to your apps. It automatically fetches the CIDR addresses of Cloudflare and CloudFront to subsequently detect and pass the real visitor's IP address to backend services or log files.
 
 ## What it does
 
@@ -40,7 +38,7 @@ experimental:
   plugins:
     traefikwarp:
       moduleName: github.com/l4rm4nd/traefik-warp
-      version: v1.0.2
+      version: v1.0.3
 ````
 
 ### Use the middleware (Dynamic config)
