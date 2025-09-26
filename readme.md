@@ -4,14 +4,16 @@ When Traefik runs **behind Cloudflare or AWS CloudFront (proxy/tunnel)**, the so
 
 ## What it does
 
+## What it does
+
 - **Accepts provider headers (only when the edge socket IP is trusted):**
-  - **Cloudflare:** `CF-Connecting-IP`, `CF-Visitor` (for `http|https`)
+  - **Cloudflare:** `CF-Connecting-IP`, `CF-Visitor` (scheme)
   - **CloudFront:** `Cloudfront-Viewer-Address` (`IP:port` or `[IPv6]:port`)
 - **Emits standard proxy headers for your apps:**
   - Appends the visitor IP to **`X-Forwarded-For`** (keeps the chain)
   - Sets **`X-Real-IP`** to the visitor IP
-  - Sets **`X-Forwarded-Proto`** from CF-Visitor or from TLS as a fallback
-  - Adds **`X-Is-Trusted`** = `yes|no` for Cloudflare requests
+  - Sets **`X-Forwarded-Proto`** to **`http`** or **`https`** (from `CF-Visitor` when present, otherwise TLS fallback)
+  - Adds neutral markers: **`X-Warp-Trusted`** = `yes|no`, **`X-Warp-Provider`** = `cloudflare|cloudfront|unknown`
 - **Hardens security:**
   - Only trusts headers if the **remote socket IP** is in known Cloudflare/CloudFront CIDRs
   - **Strips spoofable** inbound forwarding headers before setting new ones
