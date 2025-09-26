@@ -1,48 +1,67 @@
-# Real IP from Cloudflare/AWS Cloudfront Proxy/Tunnel
+# Traefik Warp – Real Client IP behind Cloudflare / CloudFront
 
-If Traefik is behind a Cloudflare/AWS Cloudfront Proxy/Tunnel, it won't be able to get the real IP from the external client as well as other information.
+When Traefik runs **behind Cloudflare or AWS CloudFront (proxy/tunnel)**, the socket IP belongs to the edge, not the visitor. **Traefik Warp** securely resolves the **visitor’s real IP** and forwards it to your apps.
 
-Processed Headers:
-- Cloudflare: CF-Connecting-IP
-- Cloudfront: Cloudfront-Viewer-Address
+## What it does
+
+- **Accepts provider headers (only when the edge socket IP is trusted):**
+  - **Cloudflare:** `CF-Connecting-IP`, `CF-Visitor` (for `http|https`)
+  - **CloudFront:** `Cloudfront-Viewer-Address` (`IP:port` or `[IPv6]:port`)
+- **Emits standard proxy headers for your apps:**
+  - Appends the visitor IP to **`X-Forwarded-For`** (keeps the chain)
+  - Sets **`X-Real-IP`** to the visitor IP
+  - Sets **`X-Forwarded-Proto`** from CF-Visitor or from TLS as a fallback
+  - Adds **`X-Is-Trusted`** = `yes|no` for Cloudflare requests
+- **Hardens security:**
+  - Only trusts headers if the **remote socket IP** is in known Cloudflare/CloudFront CIDRs
+  - **Strips spoofable** inbound forwarding headers before setting new ones
+
+---
 
 ## Configuration
 
-### Configuration documentation
+### Options
 
-Supported configurations per body
+| Setting    | Type   | Required | Allowed values                      | Description                                                                 |
+|-----------:|--------|----------|-------------------------------------|-----------------------------------------------------------------------------|
+| `provider` | string | **yes**  | `auto`, `cloudfront`, `cloudflare`  | Selects which edge network to trust. `auto` = decide by the **socket IP**. |
+| `trustIp`  | map    | no       | per-provider CIDR list              | **Extends** the built-in allowlists. Keys: `cloudflare`, `cloudfront`.     |
 
-| Setting             | Allowed values | Required | Description                                         |
-| :------------------ | :------------- | :------- | :-------------------------------------------------- |
-| provider            | string         | yes      | auto, cloudfront, cloudflare                        |
+> **Note:** `trustIp` **extends** (does not replace) the official ranges. Avoid `0.0.0.0/0` or `::/0`.
 
+---
 
-### Enable the plugin
+### Enable the plugin (Plugin Catalog)
 
 ```yaml
 experimental:
   plugins:
-    traefikdisolver:
-      modulename: github.com/l4rm4nd/traefik-warp
+    traefikwarp:
+      moduleName: github.com/l4rm4nd/traefik-warp
       version: v1.0.0
-```
+````
 
-### Plugin configuration
+### Use the middleware (Dynamic config)
 
-```yaml
+````
 http:
   middlewares:
-    traefikdisolver-auto:
+    warp-auto:
       plugin:
         traefikwarp:
           provider: auto
+          # trustIp:                # optional: extend allow-lists
+          #   cloudflare:
+          #     - "198.51.100.0/24"
+          #   cloudfront:
+          #     - "203.0.113.0/24"
 
-    traefikdisolver-cloudfront:
+    warp-cloudfront:
       plugin:
         traefikwarp:
           provider: cloudfront
 
-    traefikdisolver-cloudflare:
+    warp-cloudflare:
       plugin:
         traefikwarp:
           provider: cloudflare
@@ -50,29 +69,28 @@ http:
   routers:
     my-router-auto:
       rule: PathPrefix(`/`) && (Host(`cloudfront.example.com`) || Host(`cloudflare.example.com`))
-      service: service-whoami
-      entryPoints:
-        - http
+      entryPoints: [web]     # or your entrypoint name(s)
+      service: svc-whoami
       middlewares:
-        - traefikdisolver-cloudfront
+        - warp-auto
+
     my-router-cloudfront:
       rule: PathPrefix(`/`) && Host(`cloudfront.example.com`)
-      service: service-whoami
-      entryPoints:
-        - http
+      entryPoints: [web]
+      service: svc-whoami
       middlewares:
-        - traefikdisolver-cloudfront
+        - warp-cloudfront
+
     my-router-cloudflare:
       rule: PathPrefix(`/`) && Host(`cloudflare.example.com`)
-      service: service-whoami
-      entryPoints:
-        - http
+      entryPoints: [web]
+      service: svc-whoami
       middlewares:
-        - traefikdisolver-cloudflare
+        - warp-cloudflare
 
   services:
-    service-whoami:
+    svc-whoami:
       loadBalancer:
         servers:
-          - url: http://127.0.0.1:5000
-```
+          - url:http://127.0.0.1:5000
+````
