@@ -1,0 +1,18 @@
+displayName: Traefik Disolver - Get Client Real IP
+type: middleware
+iconPath: .assets/icon.png
+
+import: github.com/l4rm4nd/traefikdisolver
+
+summary: 'Traefik Disolver - Get Real Client IP from Cloudflare/AWS Cloudfront Proxy/Tunnel and other data'
+
+testData:
+  provider: cloudfront
+  disableDefault: true
+  trustip:
+    cloudfront:
+      - "0.0.0.0/0"
+      - "::/0"
+    cloudflare:
+      - "0.0.0.0/0"
+      - "::/0"
