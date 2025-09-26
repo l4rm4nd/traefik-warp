@@ -24,7 +24,7 @@ experimental:
   plugins:
     traefikdisolver:
       modulename: github.com/l4rm4nd/traefik-warp
-      version: v1.0.9
+      version: v1.0.0
 ```
 
 ### Plugin configuration
