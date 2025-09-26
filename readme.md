@@ -94,3 +94,7 @@ http:
         servers:
           - url:http://127.0.0.1:5000
 ````
+
+### Credits
+
+Original code and idea from https://github.com/kyaxcorp/traefikdisolver
