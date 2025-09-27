@@ -220,7 +220,10 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		if useIP == "" {
 			useIP = socketIP
 		}
+
 		// Do NOT append to XFF here; let Traefik add the socket once.
+		//appendXFF(req.Header, useIP)
+
 		req.Header.Set(xRealIP, useIP)
 
 		// Proto fallback
