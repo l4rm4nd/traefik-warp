@@ -3,9 +3,17 @@ package traefik_warp
 import (
 	"net"
 	"net/http"
-
+        "sync"
 	"github.com/l4rm4nd/traefik-warp/providers"
 )
+
+func (r *Disolver) counts() (cf, cfn int) {
+    r.mu.RLock()
+    defer r.mu.RUnlock()
+    cf = len(r.TrustIP[providers.Cloudflare])
+    cfn = len(r.TrustIP[providers.Cloudfront])
+    return
+}
 
 // Disolver is a plugin that overwrites the true IP.
 type Disolver struct {
@@ -14,6 +22,9 @@ type Disolver struct {
 	provider           providers.Provider
 	TrustIP            map[providers.Provider][]*net.IPNet
 	clientIPHeaderName string
+
+        mu                 sync.RWMutex               // guards TrustIP
+	userTrust          map[string][]string        // keep user-supplied CIDRs for merges on refresh
 }
 
 // CFVisitorHeader definition for the header value.
@@ -29,54 +40,44 @@ type TrustResult struct {
 	directIP string
 }
 
+// helper: membership check with lock
+func (r *Disolver) contains(prov providers.Provider, ip net.IP) bool {
+	r.mu.RLock()
+	nets := r.TrustIP[prov]
+	r.mu.RUnlock()
+	for _, n := range nets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // trust decides whether the REMOTE socket IP belongs to a trusted edge network.
-// IMPORTANT: In Auto mode we treat trust as the UNION of Cloudflare + CloudFront.
-// Headers must NOT influence this decision.
+// In Auto mode we treat trust as the UNION of Cloudflare + CloudFront.
 func (r *Disolver) trust(remote string, _ *http.Request) *TrustResult {
 	host, _, err := net.SplitHostPort(remote)
 	if err != nil {
-		// If it wasn’t host:port, take the raw string as a best effort
 		host = remote
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
-		return &TrustResult{
-			isFatal:  false,
-			isError:  true,
-			trusted:  false,
-			directIP: "",
-		}
-	}
-
-	contains := func(list []*net.IPNet, ip net.IP) bool {
-		for _, n := range list {
-			if n.Contains(ip) {
-				return true
-			}
-		}
-		return false
+		return &TrustResult{isError: true}
 	}
 
 	switch r.provider {
 	case providers.Cloudflare:
-		if contains(r.TrustIP[providers.Cloudflare], ip) {
+		if r.contains(providers.Cloudflare, ip) {
 			return &TrustResult{trusted: true, directIP: ip.String()}
 		}
 	case providers.Cloudfront:
-		if contains(r.TrustIP[providers.Cloudfront], ip) {
+		if r.contains(providers.Cloudfront, ip) {
 			return &TrustResult{trusted: true, directIP: ip.String()}
 		}
 	case providers.Auto:
-		// UNION: trust if socket IP is in either bucket
-		if contains(r.TrustIP[providers.Cloudflare], ip) || contains(r.TrustIP[providers.Cloudfront], ip) {
+		if r.contains(providers.Cloudflare, ip) || r.contains(providers.Cloudfront, ip) {
 			return &TrustResult{trusted: true, directIP: ip.String()}
 		}
-	default:
-		// Unknown provider → untrusted
 	}
-
-	return &TrustResult{
-		trusted:  false,
-		directIP: ip.String(),
-	}
+	return &TrustResult{trusted: false, directIP: ip.String()}
 }

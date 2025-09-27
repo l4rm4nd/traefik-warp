@@ -56,6 +56,9 @@ http:
       plugin:
         traefikwarp:
           provider: auto
+          autoRefresh: true
+          refreshInterval: 24h
+          debug: false
           # trustIp:                # optional: extend allow-lists
           #   cloudflare:
           #     - "198.51.100.0/24"

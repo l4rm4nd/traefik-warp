@@ -81,18 +81,14 @@ func extractClientIP(raw string) string {
 	return ""
 }
 
-// ipInProvider checks if ipStr is contained in a provider bucket.
+// ipInProvider checks if ipStr is contained in a provider bucket (thread-safe).
 func (r *Disolver) ipInProvider(prov providers.Provider, ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
-	for _, n := range r.TrustIP[prov] {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	// Use the locking helper added in disolver.go
+	return r.contains(prov, ip)
 }
 
 func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
@@ -153,7 +149,14 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 				}
 			}
 		case providers.Cloudfront:
-			// No special headers beyond client IP extraction.
+			// no-op here; we handle proto below
+		}
+
+		// If the edge is CloudFront, honor its proto hint if present (works for both Cloudfront and Auto).
+		if matched == providers.Cloudfront {
+			if p := strings.ToLower(strings.TrimSpace(req.Header.Get("Cloudfront-Forwarded-Proto"))); p == "http" || p == "https" {
+				req.Header.Set(xForwardProto, p)
+			}
 		}
 
 		// Decide which header contains the client IP, binding to the matched provider in Auto.
@@ -185,7 +188,7 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			clientIP = trustResult.directIP
 		}
 
-		// Ensure X-Forwarded-Proto is set if not already (e.g., CF-Visitor absent).
+		// Ensure X-Forwarded-Proto is set if not already (e.g., CF-Visitor absent and no CFN hint).
 		if req.Header.Get(xForwardProto) == "" {
 			if req.TLS != nil {
 				req.Header.Set(xForwardProto, "https")
@@ -203,7 +206,7 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		req.Header.Set(xWarpTrusted, "no")
 		req.Header.Set(xWarpProvider, "unknown")
 
-		// Untrusted: strip provider-specific headers and mark untrusted where applicable.
+		// Untrusted: strip provider-specific headers.
 		switch r.provider {
 		case providers.Cloudflare, providers.Auto:
 			req.Header.Del(cloudflare.CfVisitor)
@@ -217,7 +220,7 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		if useIP == "" {
 			useIP = socketIP
 		}
-		appendXFF(req.Header, useIP)
+		// Do NOT append to XFF here; let Traefik add the socket once.
 		req.Header.Set(xRealIP, useIP)
 
 		// Proto fallback
