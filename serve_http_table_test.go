@@ -1,5 +1,5 @@
 // serve_http_table_test.go
-package traefikwarp
+package traefik_warp
 
 import (
 	"net"

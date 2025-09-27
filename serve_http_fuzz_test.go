@@ -1,4 +1,4 @@
-package traefikwarp
+package traefik_warp
 
 import "testing"
 

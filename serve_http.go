@@ -1,5 +1,5 @@
 // serve_http.go
-package traefikwarp
+package traefik_warp
 
 import (
 	"encoding/json"

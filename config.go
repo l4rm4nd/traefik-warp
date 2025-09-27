@@ -1,4 +1,4 @@
-package traefikwarp
+package traefik_warp
 
 import "github.com/l4rm4nd/traefik-warp/providers"
 
