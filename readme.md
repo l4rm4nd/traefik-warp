@@ -28,10 +28,13 @@ The custom HTTP headers `X-Warp-Trusted` and `X-Warp-Provider` are forwarded to 
 
 ### Options
 
-| Setting    | Type   | Required | Allowed values                      | Description                                                                 |
-|-----------:|--------|----------|-------------------------------------|-----------------------------------------------------------------------------|
-| `provider` | string | **yes**  | `auto`, `cloudfront`, `cloudflare`  | Selects which edge network to trust. `auto` = decide by the **socket IP**. |
-| `trustIp`  | map    | no       | per-provider CIDR list              | **Extends** the built-in allowlists. Keys: `cloudflare`, `cloudfront`.     |
+| Setting            | Type   | Required | Allowed values                      | Description                                                                                               |
+|-------------------:|--------|----------|-------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| `provider`         | string | **yes**  | `auto`, `cloudfront`, `cloudflare`  | Selects which edge network to trust. `auto` = decide by the **socket IP**.                                |
+| `trustip`          | map    | no       | per-provider CIDR list              | **Extends** the built-in allowlists. Keys: `cloudflare`, `cloudfront`.                                    |
+| `autoRefresh`      | bool   | no       | `true` / `false`                    | Periodically refresh Cloudflare/CloudFront CIDR ranges. **Default:** `true`.                              |
+| `refreshInterval`  | string | no       | Go duration (e.g. `5m`, `1h`, `12h`)| Interval for auto refresh, used only when `autoRefresh` is true. **Default:** `12h`.                      |
+| `debug`            | bool   | no       | `true` / `false`                    | Emit Traefik-style logs from the plugin (e.g., CIDR loads/refresh). **Default:** `false`.                 |
 
 > **Note:** `trustIp` **extends** (does not replace) the official ranges. Avoid `0.0.0.0/0` or `::/0`.
 
@@ -44,7 +47,7 @@ experimental:
   plugins:
     traefikwarp:
       moduleName: github.com/l4rm4nd/traefik-warp
-      version: v1.0.4
+      version: v1.1.0
 ````
 
 ### Use the middleware (Dynamic config)
