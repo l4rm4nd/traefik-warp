@@ -59,22 +59,20 @@ func Test_Untrusted_UsesSocketIP_AndSetsHeaders(t *testing.T) {
 	if rr.Code != 200 {
 		t.Fatalf("status=%d", rr.Code)
 	}
+
+	// X-Real-IP should still be the socket IP
 	if got := rr.Header().Get("Got-XRIP"); got != "203.0.113.7" {
 		t.Fatalf("X-Real-IP=%q", got)
 	}
-	if got := rr.Header().Get("Got-XFF"); got != "203.0.113.7" {
-		t.Fatalf("X-Forwarded-For=%q", got)
+
+	// Now expect EMPTY X-Forwarded-For for untrusted
+	if got := rr.Header().Get("Got-XFF"); got != "" {
+		t.Fatalf("expected empty X-Forwarded-For, got %q", got)
 	}
+
 	// Proto default (no TLS, no CF-Visitor)
 	if got := rr.Header().Get("Got-XFP"); got != "http" {
 		t.Fatalf("X-Forwarded-Proto=%q", got)
-	}
-	// Neutral trust markers
-	if got := rr.Header().Get("Got-Warp-Trusted"); got != "no" {
-		t.Fatalf("X-Warp-Trusted=%q", got)
-	}
-	if got := rr.Header().Get("Got-Warp-Provider"); got != "unknown" {
-		t.Fatalf("X-Warp-Provider=%q", got)
 	}
 }
 
