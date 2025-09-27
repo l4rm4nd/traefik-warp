@@ -107,6 +107,83 @@ http:
           - url:http://127.0.0.1:5000
 ````
 
+### Local Development
+
+You can also enable this plugin during development as follows:
+
+<details>
+
+Clone this repository:
+
+````
+cd /tmp
+git clone https://github.com/l4rm4nd/traefik-warp
+````
+
+Then mount the plugin dir as docker bind mount volume in Traefik's compose:
+
+````
+    volumes:
+      - /tmp/traefik-warp:/plugins-local/src/github.com/l4rm4nd/traefik-warp:ro
+````
+
+Enable the local plugin in Traefik's static config:
+
+````
+experimental:
+  localPlugins:
+    traefikwarp:
+      moduleName: github.com/l4rm4nd/traefik-warp
+````
+
+Finally, define the middleware in Traefik's dynamic config:
+
+````
+http:
+  middlewares:
+    warp-auto:
+      plugin:
+        traefikwarp:
+          provider: auto
+          autoRefresh: true
+          refreshInterval: 1m
+          debug: true
+````
+
+And test it using a whoami container:
+
+````
+services:
+
+  whoami:
+    image: traefik/whoami
+    container_name: whoami
+    hostname: whoami
+    restart: unless-stopped
+    expose:
+      - 80
+    environment:
+      - WHOAMI_NAME=whoami
+      - WHOAMI_PORT_NUMBER=80
+    networks:
+      - proxy # change to your traefik network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy # change to your traefik network
+      - traefik.http.routers.whoami.rule=Host(`whoami.example.com`)
+      - traefik.http.services.whoami.loadbalancer.server.port=80
+      - traefik.http.routers.whoami.middlewares=warp-auto@file # change to correct middleware name
+````
+
+The plugin will emit debug messages if you have enabled `debug`:
+
+````
+2025-09-27T03:59:58+02:00 INF warp: CIDRs loaded cf=22 cfn=194 middleware=warp-auto@file module=github.com/l4rm4nd/traefik-warp plugin=plugin-traefikwarp
+2025-09-27T04:01:04+02:00 INF warp: refreshed CIDRs cf=22 cfn=194 module=github.com/l4rm4nd/traefik-warp plugin=plugin-traefikwarp
+````
+
+</details>
+
 ### Credits
 
 Original code and idea from https://github.com/kyaxcorp/traefikdisolver
