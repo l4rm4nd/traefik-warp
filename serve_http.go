@@ -217,7 +217,7 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		if useIP == "" {
 			useIP = socketIP
 		}
-		appendXFF(req.Header, useIP)
+		//appendXFF(req.Header, useIP)
 		req.Header.Set(xRealIP, useIP)
 
 		// Proto fallback
