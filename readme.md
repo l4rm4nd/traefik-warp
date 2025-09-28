@@ -58,11 +58,11 @@ experimental:
     traefikwarp:
       moduleName: github.com/l4rm4nd/traefik-warp
       version: v1.1.1
-````
+```
 
 ### Use the middleware (Dynamic config)
 
-````
+```yaml
 http:
   middlewares:
     warp-auto:
@@ -115,7 +115,7 @@ http:
       loadBalancer:
         servers:
           - url:http://127.0.0.1:5000
-````
+```
 
 ### Local Development
 
@@ -125,30 +125,30 @@ You can also enable this plugin during development as follows:
 
 Clone this repository:
 
-````
+```bash
 cd /tmp
 git clone https://github.com/l4rm4nd/traefik-warp
-````
+```
 
 Then mount the plugin dir as docker bind mount volume in Traefik's compose:
 
-````
+```yaml
     volumes:
       - /tmp/traefik-warp:/plugins-local/src/github.com/l4rm4nd/traefik-warp:ro
-````
+```
 
 Enable the local plugin in Traefik's static config:
 
-````
+```yaml
 experimental:
   localPlugins:
     traefikwarp:
       moduleName: github.com/l4rm4nd/traefik-warp
-````
+```
 
 Finally, define the middleware in Traefik's dynamic config:
 
-````
+```yaml
 http:
   middlewares:
     warp-auto:
@@ -158,11 +158,11 @@ http:
           autoRefresh: true
           refreshInterval: 1m
           debug: true
-````
+```
 
 And test it using a whoami container:
 
-````
+```yaml
 services:
 
   whoami:
@@ -183,14 +183,14 @@ services:
       - traefik.http.routers.whoami.rule=Host(`whoami.example.com`)
       - traefik.http.services.whoami.loadbalancer.server.port=80
       - traefik.http.routers.whoami.middlewares=warp-auto@file # change to correct middleware name
-````
+```
 
 The plugin will emit debug messages if you have enabled `debug`:
 
-````
+```conf
 2025-09-27T03:59:58+02:00 INF warp: CIDRs loaded cf=22 cfn=194 middleware=warp-auto@file module=github.com/l4rm4nd/traefik-warp plugin=plugin-traefikwarp
 2025-09-27T04:01:04+02:00 INF warp: refreshed CIDRs cf=22 cfn=194 module=github.com/l4rm4nd/traefik-warp plugin=plugin-traefikwarp
-````
+```
 
 </details>
 
