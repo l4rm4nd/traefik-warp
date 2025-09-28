@@ -221,9 +221,12 @@ func (r *Disolver) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			useIP = socketIP
 		}
 
-		// Do NOT append to XFF here; let Traefik add the socket once.
-		//appendXFF(req.Header, useIP)
-
+		// next line will cause a potentially ducplicate IP in XFF
+		// though, beneficial for traefik's IPAllowList and ipStrategy.depth = 1
+		// can fix setups where traefik is run behind a CDN and one want to use IPAllowList middlware
+		// example: https://community.traefik.io/t/ipwhitelist-with-excludedips-setting-will-result-in-empty-ip-address-when-there-is-1-ip-address-in-x-forwarded-for-header/17491
+		appendXFF(req.Header, useIP)
+		
 		req.Header.Set(xRealIP, useIP)
 
 		// Proto fallback
