@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/l4rm4nd/traefik-warp/compare/v1.1.3...v1.1.4) (2025-09-28)
+
+
+### Bug Fixes
+
+* Update readme.md ([4ec7887](https://github.com/l4rm4nd/traefik-warp/commit/4ec78875a222adf5fe4a6cf7481ba952be75c2f1))
+
 ## [1.1.3](https://github.com/l4rm4nd/traefik-warp/compare/v1.1.2...v1.1.3) (2025-09-28)
 
 
