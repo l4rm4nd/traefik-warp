@@ -28,9 +28,14 @@ A Traefik middleware plugin to automatically obtain the real visitor's IP addres
 
 ## How it works
 
-TraefikWarp automatically fetches the latest Cloudflare and AWS CloudFront IPv4/IPv6 CIDR ranges from their official endpoints and builds an in-memory allowlist. On every middleware request, it validates the remote socket IP against this allowlist. Only when it matches, the middleware trusts the specific provider's headers to resolve the visitor’s real IP address. It then normalizes `X-Forwarded-Proto` to `http` or `https` and sets `X-Forwarded-For`, `X-Real-IP`, `X-Warp-Trusted`, and `X-Warp-Provider`. The resolved address is then propagated to backend services and recorded in access logs. CDN CIDR IP addresses are regularly refreshed (default every 12h). If the ranges cannot be fetched, the middleware stays safe as no public ranges are trusted per default. You may extend the allowlist of trusted IPs by using `trustIp`.
+TraefikWarp automatically fetches the latest Cloudflare and AWS CloudFront IPv4/IPv6 CIDR ranges from their official endpoints and builds an in-memory allowlist. On every middleware request, it validates the remote socket IP against this allowlist. Only when it matches, the middleware trusts the specific provider's headers to resolve the visitor’s real IP address. It then normalizes `X-Forwarded-Proto` to `http` or `https` and sets `X-Forwarded-For`, `X-Real-IP`, `X-Warp-Trusted`, and `X-Warp-Provider`. The resolved address is then propagated to backend services and recorded in the backend service's access logs. CDN CIDR IP addresses are regularly refreshed (default every 12h). If the ranges cannot be fetched, the middleware stays safe as no public ranges are trusted per default. You may extend the allowlist of trusted IPs by using `trustIp`.
 
 The custom HTTP headers `X-Warp-Trusted` and `X-Warp-Provider` are forwarded to your backends to document TraefikWarp’s decision. `X-Warp-Trusted` is `yes` when the socket IP matched the allowlist (so provider headers were trusted) and `no` otherwise. `X-Warp-Provider` identifies, which provider's network the socket IP matched - e.g. `cloudflare`, `cloudfront` or `unknown`. These headers are informational for logging, metrics, and policy decisions. They don’t affect how TraefikWarp validates or rewrites request headers.
+
+> [!CAUTION]
+> This plugin will not help logging the visitor's real IP address in Traefik's access log.
+> 
+> For such cases, use [ProxyProtocol](https://doc.traefik.io/traefik/reference/install-configuration/entrypoints/#proxyprotocol-and-load-balancers) and define `trustedIPs` at your Traefik entrypoints.
 
 ---
 
