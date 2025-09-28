@@ -5,7 +5,7 @@ A Traefik middleware plugin to automatically obtain the real visitor's IP addres
 > [!CAUTION]
 > This plugin will not help logging the visitor's real IP address in Traefik's access log.
 > 
-> For such cases, use [ProxyProtocol](https://doc.traefik.io/traefik/reference/install-configuration/entrypoints/#proxyprotocol-and-load-balancers) and define `trustedIPs` at your Traefik entrypoints. Example [here](https://github.com/Haxxnet/Compose-Examples/blob/main/examples/traefik/traefik.yml#L61).
+> For such cases,use `forwardedHeaders.trustedIPs` at your entrypoints. Example [here](https://github.com/Haxxnet/Compose-Examples/blob/main/examples/traefik/traefik.yml#L61).
 
 ## Features
 
