@@ -62,7 +62,7 @@ experimental:
   plugins:
     traefikwarp:
       moduleName: github.com/l4rm4nd/traefik-warp
-      version: v1.1.4
+      version: v1.1.5 # <-- ensure using a latest release
 ```
 
 ### Use the middleware (Dynamic config)
@@ -119,7 +119,7 @@ http:
     svc-whoami:
       loadBalancer:
         servers:
-          - url:http://127.0.0.1:5000
+          - url:http://10.10.10.10:5000
 ```
 
 ### Local Development
