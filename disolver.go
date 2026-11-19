@@ -3,6 +3,7 @@ package traefik_warp
 import (
 	"net"
 	"net/http"
+	"time"
         "sync"
 	"github.com/l4rm4nd/traefik-warp/providers"
 )
@@ -22,6 +23,7 @@ type Disolver struct {
 	provider           providers.Provider
 	TrustIP            map[providers.Provider][]*net.IPNet
 	clientIPHeaderName string
+	retryInterval      time.Duration
 
         mu                 sync.RWMutex               // guards TrustIP
 	userTrust          map[string][]string        // keep user-supplied CIDRs for merges on refresh

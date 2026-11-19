@@ -13,7 +13,12 @@ const (
 	ListTTL      = time.Hour
 )
 
-var RetryInterval = 30 * time.Second
+// RetryInterval is the default for how soon a failed download is retried. It is set through a
+// function because Yaegi refuses assignments from other packages (tests) to a var with a constant
+// initialiser.
+var RetryInterval = defaultRetryInterval()
+
+func defaultRetryInterval() time.Duration { return 30 * time.Second }
 
 var HTTPClient = &http.Client{Timeout: FetchTimeout}
 
@@ -22,8 +27,9 @@ var ErrNoList = errors.New("provider IP list not fetched yet")
 // ListCache shares one provider IP list between all middleware instances of the process.
 // Only the first download blocks; later refreshes run in the background.
 type ListCache struct {
-	Fetch func() ([]string, error)
-	TTL   time.Duration
+	Fetch      func() ([]string, error)
+	TTL        time.Duration
+	RetryAfter time.Duration
 
 	mu         sync.Mutex
 	list       []string
@@ -90,7 +96,7 @@ func (c *ListCache) store(list []string, now time.Time) {
 }
 
 func (c *ListCache) recentlyFailed(now time.Time) bool {
-	return !c.failedAt.IsZero() && now.Sub(c.failedAt) < RetryInterval
+	return !c.failedAt.IsZero() && now.Sub(c.failedAt) < c.RetryAfter
 }
 
 func (c *ListCache) noListErr() error {

@@ -17,7 +17,7 @@ var URLs = []string{
 	"https://www.cloudflare.com/ips-v6",
 }
 
-var Cache = &providers.ListCache{Fetch: fetch, TTL: providers.ListTTL}
+var Cache = &providers.ListCache{Fetch: fetch, TTL: providers.ListTTL, RetryAfter: providers.RetryInterval}
 
 // TrustedIPS returns Cloudflare's current IP ranges (IPv4 + IPv6), or nil if they
 // could not be downloaded yet: then no source is trusted.
