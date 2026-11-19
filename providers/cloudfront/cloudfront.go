@@ -3,69 +3,75 @@ package cloudfront
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"net"
 	"net/http"
+	"time"
+
+	"github.com/l4rm4nd/traefik-warp/providers"
 )
 
-// CFIPs is the CloudFlare Server IP list (this is checked on build).
+// Found at https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/LocationsOfEdgeServers.html
+var URL = "https://d7uri8nf7uskq.cloudfront.net/tools/list-cloudfront-ips"
+
+var Cache = &providers.ListCache{Fetch: fetch, TTL: providers.ListTTL, RetryAfter: providers.RetryInterval}
+
+// TrustedIPS returns CloudFront's current IP ranges, or nil if they could not be
+// downloaded yet: then no source is trusted.
 func TrustedIPS() []string {
-
-	// Found at https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/LocationsOfEdgeServers.html
-	url := "https://d7uri8nf7uskq.cloudfront.net/tools/list-cloudfront-ips"
-
-	resp, err := http.Get(url)
+	ipList, err := Cache.Get(time.Now())
 	if err != nil {
-		fmt.Println("Error making the request:", err)
-		return []string{
-			"192.168.0.0/16",
-			"10.0.0.0/8",
-			"172.16.0.0/12",
-		}
+		fmt.Println("CloudFront IP list unavailable:", err)
+		return nil
 	}
-	defer resp.Body.Close() // Ensure the response body is closed
+	return ipList
+}
 
-	// Read the response body
-	body, err := ioutil.ReadAll(resp.Body)
+func fetch() ([]string, error) {
+	resp, err := providers.HTTPClient.Get(URL)
 	if err != nil {
-		fmt.Println("Error reading the response body:", err)
-		return []string{
-			"192.168.0.0/16",
-			"10.0.0.0/8",
-			"172.16.0.0/12",
-		}
+		return nil, fmt.Errorf("fetching %s: %w", URL, err)
 	}
-	// Define a map to hold the JSON data
-	var data map[string][]string
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetching %s: status %d", URL, resp.StatusCode)
+	}
 
-	// Parse the JSON response
-	err = json.Unmarshal(body, &data)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("Error parsing the JSON:", err)
-		return []string{
-			"192.168.0.0/16",
-			"10.0.0.0/8",
-			"172.16.0.0/12",
-		}
+		return nil, fmt.Errorf("reading %s: %w", URL, err)
+	}
+	// Raw values, so a key AWS might add with another type does not break the whole response.
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", URL, err)
 	}
 
-	// Extract the arrays
-	globalIPList, globalExists := data["CLOUDFRONT_GLOBAL_IP_LIST"]
-	regionalIPList, regionalExists := data["CLOUDFRONT_REGIONAL_EDGE_IP_LIST"]
-
-	if !globalExists && !regionalExists {
-		fmt.Println("Both keys are missing in the response")
-		return []string{
-			"192.168.0.0/16",
-			"10.0.0.0/8",
-			"172.16.0.0/12",
+	var merged []string
+	found := false
+	for _, key := range []string{"CLOUDFRONT_GLOBAL_IP_LIST", "CLOUDFRONT_REGIONAL_EDGE_IP_LIST"} {
+		raw, ok := data[key]
+		if !ok {
+			continue
+		}
+		found = true
+		var list []string
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return nil, fmt.Errorf("parsing %s in %s: %w", key, URL, err)
+		}
+		merged = append(merged, list...)
+	}
+	if !found {
+		return nil, errors.New("both keys are missing in the response")
+	}
+	for _, cidr := range merged {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return nil, fmt.Errorf("not a CIDR in %s: %q", URL, cidr)
 		}
 	}
-
-	// Merge the arrays
-	mergedIPList := append(globalIPList, regionalIPList...)
-
-	return mergedIPList
+	return merged, nil
 }
 
 const ClientIPHeaderName = "Cloudfront-Viewer-Address"

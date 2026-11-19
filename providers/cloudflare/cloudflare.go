@@ -4,48 +4,74 @@ package cloudflare
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
+	"time"
+
+	"github.com/l4rm4nd/traefik-warp/providers"
 )
 
-// TrustedIPS fetches Cloudflare's current IP ranges (IPv4 + IPv6).
+var URLs = []string{
+	"https://www.cloudflare.com/ips-v4",
+	"https://www.cloudflare.com/ips-v6",
+}
+
+var Cache = &providers.ListCache{Fetch: fetch, TTL: providers.ListTTL, RetryAfter: providers.RetryInterval}
+
+// TrustedIPS returns Cloudflare's current IP ranges (IPv4 + IPv6), or nil if they
+// could not be downloaded yet: then no source is trusted.
 func TrustedIPS() []string {
-	urls := []string{
-		"https://www.cloudflare.com/ips-v4",
-		"https://www.cloudflare.com/ips-v6",
+	ipList, err := Cache.Get(time.Now())
+	if err != nil {
+		fmt.Println("Cloudflare IP list unavailable:", err)
+		return nil
+	}
+	return ipList
+}
+
+// fetch fails as a whole if any URL fails, so a partial list never replaces a complete one.
+func fetch() ([]string, error) {
+	var ipList []string
+	for _, url := range URLs {
+		list, err := fetchURL(url)
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s: %w", url, err)
+		}
+		ipList = append(ipList, list...)
+	}
+	return ipList, nil
+}
+
+func fetchURL(url string) ([]string, error) {
+	resp, err := providers.HTTPClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	var ipList []string
-	for _, url := range urls {
-		resp, err := http.Get(url)
-		if err != nil {
-			fmt.Println("Error fetching", url, ":", err)
+	var list []string
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
 			continue
 		}
-		defer resp.Body.Close()
-
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			ip := scanner.Text()
-			if ip != "" {
-				ipList = append(ipList, ip)
-			}
+		if _, _, err := net.ParseCIDR(line); err != nil {
+			return nil, fmt.Errorf("not a CIDR: %q", line)
 		}
-
-		if err := scanner.Err(); err != nil {
-			fmt.Println("Error reading response from", url, ":", err)
-		}
+		list = append(list, line)
 	}
-
-	// Fallback: if nothing was fetched, allow all
-	if len(ipList) == 0 {
-		return []string{
-			"192.168.0.0/16",
-			"10.0.0.0/8",
-			"172.16.0.0/12",
-		}
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
-
-	return ipList
+	if len(list) == 0 {
+		return nil, fmt.Errorf("no ranges in the response")
+	}
+	return list, nil
 }
 
 const ClientIPHeaderName = "CF-Connecting-IP"
