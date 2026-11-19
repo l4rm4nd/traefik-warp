@@ -42,8 +42,9 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	}
 
 	// Initial allowlist build
-	if err := d.refreshOnce(); err != nil {
-		logWarn("warp: initial CIDR load had issues", "error", err.Error(), "middleware", name)
+	loadErr := d.refreshOnce()
+	if loadErr != nil {
+		logWarn("warp: initial CIDR load had issues", "error", loadErr.Error(), "middleware", name)
 	} else {
 		cf, cfn := d.counts()
 		logInfo("warp: CIDRs loaded", "cf", fmt.Sprintf("%d", cf), "cfn", fmt.Sprintf("%d", cfn), "middleware", name)
@@ -55,16 +56,21 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		if err != nil || ival <= 0 {
 			ival = 12 * time.Hour
 		}
-		go d.refreshLoop(ctx, ival)
+		jitter := time.Duration(int64(time.Second) * (int64(time.Now().UnixNano()) % 7))
+		first := ival + jitter
+		if loadErr != nil {
+			first = providers.RetryInterval
+		}
+		go d.refreshLoop(ctx, ival, first)
 	}
 
 	return d, nil
 }
 
 // refreshLoop periodically refreshes the allowlists until ctx is done.
-func (d *Disolver) refreshLoop(ctx context.Context, interval time.Duration) {
-	jitter := time.Duration(int64(time.Second) * (int64(time.Now().UnixNano())%7))
-	t := time.NewTimer(interval + jitter)
+// While a provider list is missing it retries every providers.RetryInterval.
+func (d *Disolver) refreshLoop(ctx context.Context, interval, first time.Duration) {
+	t := time.NewTimer(first)
 	defer t.Stop()
 
 	for {
@@ -74,10 +80,11 @@ func (d *Disolver) refreshLoop(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 			if err := d.refreshOnce(); err != nil {
 				logWarn("warp: periodic CIDR refresh failed", "error", err.Error())
-			} else {
-				cf, cfn := d.counts()
-				logInfo("warp: refreshed CIDRs", "cf", fmt.Sprintf("%d", cf), "cfn", fmt.Sprintf("%d", cfn))
+				t.Reset(providers.RetryInterval)
+				continue
 			}
+			cf, cfn := d.counts()
+			logInfo("warp: refreshed CIDRs", "cf", fmt.Sprintf("%d", cf), "cfn", fmt.Sprintf("%d", cfn))
 			t.Reset(interval)
 		}
 	}
@@ -103,6 +110,14 @@ func (d *Disolver) refreshOnce() error {
 	}
 	if list, ok := d.userTrust[providers.Cloudfront.String()]; ok {
 		cfnCIDRs = append(cfnCIDRs, list...)
+	}
+
+	var missing []string
+	if (d.provider == providers.Cloudflare || d.provider == providers.Auto) && len(cfCIDRs) == 0 {
+		missing = append(missing, providers.Cloudflare.String())
+	}
+	if (d.provider == providers.Cloudfront || d.provider == providers.Auto) && len(cfnCIDRs) == 0 {
+		missing = append(missing, providers.Cloudfront.String())
 	}
 
 	// Build a fresh map
@@ -133,5 +148,8 @@ func (d *Disolver) refreshOnce() error {
 	d.TrustIP = newMap
 	d.mu.Unlock()
 
+	if len(missing) > 0 {
+		return fmt.Errorf("IP list not available yet: %s", strings.Join(missing, ", "))
+	}
 	return nil
 }

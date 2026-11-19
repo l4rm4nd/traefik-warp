@@ -3,30 +3,90 @@ package providers
 import (
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
 
+type step struct {
+	list []string
+	err  error
+	gate chan struct{} // if set, the fetch waits for it to be closed
+}
+
 type fakeFetch struct {
-	calls   int
-	results [][]string
-	errs    []error
+	mu    sync.Mutex
+	steps []step
+	calls int
+	done  chan struct{}
+}
+
+func newFake(steps ...step) *fakeFetch {
+	return &fakeFetch{steps: steps, done: make(chan struct{}, len(steps))}
 }
 
 func (f *fakeFetch) fetch() ([]string, error) {
-	i := f.calls
+	f.mu.Lock()
+	s := f.steps[f.calls]
 	f.calls++
-	return f.results[i], f.errs[i]
+	f.mu.Unlock()
+
+	if s.gate != nil {
+		<-s.gate
+	}
+	f.done <- struct{}{}
+	return s.list, s.err
 }
 
-func newCache(f *fakeFetch) *ListCache {
-	return &ListCache{Fetch: f.fetch, TTL: time.Hour, RetryAfter: 30 * time.Second}
+func (f *fakeFetch) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func (f *fakeFetch) waitCalls(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for f.callCount() < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("fetch %d did not start", n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func (f *fakeFetch) waitFetches(t *testing.T, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		select {
+		case <-f.done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("fetch %d did not finish", i+1)
+		}
+	}
+}
+
+// waitRefreshStored waits until the background refresh has released the cache.
+func waitRefreshStored(c *ListCache) {
+	for {
+		c.mu.Lock()
+		busy := c.refreshing
+		c.mu.Unlock()
+		if !busy {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 var t0 = time.Date(2026, 11, 19, 6, 0, 0, 0, time.UTC)
 
+func newCache(f *fakeFetch) *ListCache {
+	return &ListCache{Fetch: f.fetch, TTL: time.Hour}
+}
+
 func TestFreshListIsFetchedOnce(t *testing.T) {
-	f := &fakeFetch{results: [][]string{{"173.245.48.0/20"}}, errs: []error{nil}}
+	f := newFake(step{list: []string{"173.245.48.0/20"}})
 	c := newCache(f)
 
 	for i := 0; i < 38; i++ {
@@ -35,53 +95,74 @@ func TestFreshListIsFetchedOnce(t *testing.T) {
 			t.Fatalf("call %d: got %v, %v", i, got, err)
 		}
 	}
-	if f.calls != 1 {
-		t.Fatalf("fetched %d times, want 1", f.calls)
+	if f.callCount() != 1 {
+		t.Fatalf("fetched %d times, want 1", f.callCount())
 	}
 }
 
-func TestStaleListIsFetchedAgain(t *testing.T) {
-	f := &fakeFetch{results: [][]string{{"a"}, {"b"}}, errs: []error{nil, nil}}
+func TestStaleListIsServedWhileRefreshing(t *testing.T) {
+	gate := make(chan struct{})
+	f := newFake(step{list: []string{"a"}}, step{list: []string{"b"}, gate: gate})
 	c := newCache(f)
-
 	c.Get(t0)
-	got, _ := c.Get(t0.Add(time.Hour))
 
-	if f.calls != 2 || !reflect.DeepEqual(got, []string{"b"}) {
-		t.Fatalf("calls %d, got %v; want a refetch returning b", f.calls, got)
+	got, err := c.Get(t0.Add(time.Hour))
+	if err != nil || !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("while refreshing: got %v, %v; want the old list without waiting", got, err)
+	}
+	f.waitCalls(t, 2)
+	c.Get(t0.Add(time.Hour + time.Second))
+	if f.callCount() != 2 {
+		t.Fatalf("fetched %d times, want one refresh in flight", f.callCount())
+	}
+
+	close(gate)
+	f.waitFetches(t, 2)
+	waitRefreshStored(c)
+
+	got, _ = c.Get(t0.Add(time.Hour + 2*time.Second))
+	if !reflect.DeepEqual(got, []string{"b"}) {
+		t.Fatalf("after refresh: got %v, want b", got)
 	}
 }
 
 func TestFailedRefreshKeepsTheLastGoodList(t *testing.T) {
-	f := &fakeFetch{results: [][]string{{"a"}, nil}, errs: []error{nil, errors.New("down")}}
+	f := newFake(step{list: []string{"a"}}, step{err: errors.New("down")})
 	c := newCache(f)
-
 	c.Get(t0)
-	got, err := c.Get(t0.Add(2 * time.Hour))
 
+	c.Get(t0.Add(2 * time.Hour))
+	f.waitFetches(t, 2)
+	waitRefreshStored(c)
+
+	got, err := c.Get(t0.Add(2*time.Hour + time.Second))
 	if err != nil || !reflect.DeepEqual(got, []string{"a"}) {
 		t.Fatalf("got %v, %v; want the last good list", got, err)
 	}
+	if f.callCount() != 2 {
+		t.Fatalf("fetched %d times; a failed refresh must wait RetryInterval", f.callCount())
+	}
 }
 
-func TestFailureWithoutAListIsNotRetriedBeforeRetryAfter(t *testing.T) {
-	f := &fakeFetch{results: [][]string{nil, {"a"}}, errs: []error{errors.New("down"), nil}}
+func TestFailureWithoutAListIsNotRetriedBeforeRetryInterval(t *testing.T) {
+	f := newFake(step{err: errors.New("down")}, step{list: []string{"a"}})
 	c := newCache(f)
 
-	if _, err := c.Get(t0); !errors.Is(err, ErrNoList) {
-		t.Fatalf("first call: err %v, want ErrNoList", err)
+	_, err := c.Get(t0)
+	if !errors.Is(err, ErrNoList) || err.Error() != "provider IP list not fetched yet: down" {
+		t.Fatalf("first call: err %v, want ErrNoList with the cause", err)
 	}
-	if _, err := c.Get(t0.Add(10 * time.Second)); !errors.Is(err, ErrNoList) || f.calls != 1 {
-		t.Fatalf("within RetryAfter: err %v, calls %d; want ErrNoList without a fetch", err, f.calls)
+	if _, err := c.Get(t0.Add(RetryInterval - time.Second)); !errors.Is(err, ErrNoList) || f.callCount() != 1 {
+		t.Fatalf("within RetryInterval: err %v, calls %d; want ErrNoList without a fetch", err, f.callCount())
 	}
-	got, err := c.Get(t0.Add(30 * time.Second))
-	if err != nil || !reflect.DeepEqual(got, []string{"a"}) || f.calls != 2 {
-		t.Fatalf("after RetryAfter: got %v, %v, calls %d; want a refetch", got, err, f.calls)
+	got, err := c.Get(t0.Add(RetryInterval))
+	if err != nil || !reflect.DeepEqual(got, []string{"a"}) || f.callCount() != 2 {
+		t.Fatalf("after RetryInterval: got %v, %v, calls %d; want a refetch", got, err, f.callCount())
 	}
 }
 
 func TestEmptyListCountsAsFailure(t *testing.T) {
-	f := &fakeFetch{results: [][]string{{}}, errs: []error{nil}}
+	f := newFake(step{list: []string{}})
 	c := newCache(f)
 
 	if _, err := c.Get(t0); !errors.Is(err, ErrNoList) {
@@ -90,7 +171,7 @@ func TestEmptyListCountsAsFailure(t *testing.T) {
 }
 
 func TestCallerCannotChangeTheCachedList(t *testing.T) {
-	f := &fakeFetch{results: [][]string{{"a"}}, errs: []error{nil}}
+	f := newFake(step{list: []string{"a"}})
 	c := newCache(f)
 
 	got, _ := c.Get(t0)
